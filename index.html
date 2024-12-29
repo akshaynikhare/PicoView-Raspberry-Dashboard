@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Pi Monitor</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=480, initial-scale=1">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a1a;
+            color: #fff;
+            padding: 8px;
+            width: 480px;
+            height: 320px;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(3, 98px);
+            gap: 8px;
+        }
+
+        .metric {
+            background: #2a2a2a;
+            padding: 8px;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        h2 {
+            font-size: 12px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .title-value {
+            font-weight: bold;
+        }
+
+        .mini-chart {
+            height: 40px;
+            margin-top: 12px;
+        }
+
+        .disk-stats {
+            font-size: 11px;
+            color: #888;
+        }
+
+        .disk-stats h2 {
+            color: #fff;
+        }
+
+        .disk-stats div {
+            margin: 4px 0;
+        }
+
+        .disk-stats h2 {
+            margin-bottom: 12px;
+        }
+
+        .network-stat {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+            font-size: 12px;
+        }
+
+        .warning {
+            color: #ff9800;
+        }
+
+        .danger {
+            color: #f44336;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="metric">
+            <h2>
+                <span>CPU Temperature</span>
+                <span class="title-value" id="temp">Loading...</span>
+            </h2>
+            <canvas id="tempChart" class="mini-chart"></canvas>
+        </div>
+
+        <div class="metric">
+            <h2>
+                <span>CPU Usage</span>
+                <span class="title-value" id="cpu">Loading...</span>
+            </h2>
+            <canvas id="cpuChart" class="mini-chart"></canvas>
+        </div>
+
+        <div class="metric">
+            <h2>
+                <span>Memory Usage</span>
+                <span class="title-value" id="memory">Loading...</span>
+            </h2>
+            <canvas id="memoryChart" class="mini-chart"></canvas>
+        </div>
+
+
+        <div class="metric">
+            <div class="chart-container" style="width: 80px;height: 80px;position: absolute;right: 10px;">
+                <canvas id="diskChart" class="chart"></canvas>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+
+                <div class="disk-container">
+                    <div class="disk-stats">
+                        <h2><span>Disk Space</span></h2>
+                        <div>Used: <span class="title-value" id="disk">Loading...</span></div>
+                        <div>Total: <span id="disk-total">0 GB</span></div>
+                        <div>Free: <span id="disk-free">0 GB</span></div>
+                    </div>
+                </div>
+
+            </div>
+
+
+        </div>
+
+        <div class="metric">
+            <h2>Network <span id="local-ip">192.168.x.x</span></h2>
+            <div class="network-stat">
+                <span>Download ↓</span>
+                <span id="network-rx">0 MB</span>
+            </div>
+            <div class="network-stat">
+                <span>Upload ↑</span>
+                <span id="network-tx">0 MB</span>
+            </div>
+            <div class="network-stat">
+                <span>Uptime</span>
+                <span id="uptime">-</span>
+            </div>
+        </div>
+
+        <div class="metric">
+            <!-- Reserved for future use -->
+        </div>
+    </div>
+
+    <script>
+        let charts = {};
+        const refreshRate = 3000;
+
+        function createChart(id, color) {
+            const ctx = document.getElementById(id).getContext('2d');
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        borderColor: color,
+                        borderWidth: 1.5,
+                        tension: 0.4,
+                        fill: false,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { display: false },
+                        x: { display: false }
+                    },
+                    animation: false
+                }
+            });
+        }
+
+        function initCharts() {
+            charts.temp = createChart('tempChart', '#f44336');
+            charts.cpu = createChart('cpuChart', '#2196f3');
+            charts.memory = createChart('memoryChart', '#4caf50');
+
+            charts.disk = new Chart(document.getElementById('diskChart').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['Used', 'Free'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#ff4081', '#4caf50']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false }
+                    },
+                    cutout: '55%',
+                }
+            });
+        }
+
+
+
+        function updateChart(chart, data, labels) {
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = data;
+            chart.update('none');
+        }
+
+        function getColorClass(value, warning, danger) {
+            return value > danger ? 'danger' :
+                value > warning ? 'warning' : '';
+        }
+
+        async function updateMetrics() {
+            try {
+                const response = await fetch('metrics.php');
+                const { current, history } = await response.json();
+                const labels = history.map(d => d.timestamp);
+
+                document.getElementById('temp').className =
+                    `title-value ${getColorClass(current.temperature, 60, 70)}`;
+                document.getElementById('temp').textContent =
+                    `${current.temperature}°C`;
+
+                document.getElementById('cpu').className =
+                    `title-value ${getColorClass(current.cpu_percent, 70, 85)}`;
+                document.getElementById('cpu').textContent =
+                    `${current.cpu_percent}%`;
+
+                document.getElementById('memory').className =
+                    `title-value ${getColorClass(current.memory.percent, 70, 85)}`;
+                document.getElementById('memory').textContent =
+                    `${current.memory.percent}%`;
+
+                document.getElementById('disk').textContent =
+                    `${current.disk.percent}%`;
+                document.getElementById('disk-total').textContent =
+                    `${current.disk.total} GB`;
+                document.getElementById('disk-free').textContent =
+                    `${current.disk.free} GB`;
+
+                document.getElementById('local-ip').textContent = current.local_ip;
+                document.getElementById('network-rx').textContent =
+                    `${current.network.rx} MB`;
+                document.getElementById('network-tx').textContent =
+                    `${current.network.tx} MB`;
+                document.getElementById('uptime').textContent = current.uptime;
+
+                updateChart(charts.temp, history.map(d => d.temperature), labels);
+                updateChart(charts.cpu, history.map(d => d.cpu_percent), labels);
+                updateChart(charts.memory, history.map(d => d.memory.percent), labels);
+
+                charts.disk.data.datasets[0].data = [
+                    current.disk.used,
+                    current.disk.free
+                ];
+                charts.disk.update('none');
+
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        initCharts();
+        updateMetrics();
+        setInterval(updateMetrics, refreshRate);
+    </script>
+</body>
+
+</html>
