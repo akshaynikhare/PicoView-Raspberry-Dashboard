@@ -4,6 +4,8 @@ A compact system monitoring dashboard for Raspberry Pi 3B with 3.5" LCD , build 
 
 A lightweight system monitoring dashboard designed specifically for the Raspberry Pi 3B with a 3.5-inch XPT2046 Resistive Touch Screen IPS LCD (480x320).
 
+![PicoView Raspberry Dashboard](./preview/PicoView-1.jpg)
+
 ## Hardware Requirements
 
 - Raspberry Pi 3B
